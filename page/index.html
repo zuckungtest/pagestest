@@ -2,49 +2,108 @@
 <html lang="de">
 <head>
 	<meta charset="UTF-8">
-	<title>Endless Sky Savegame Editor</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Endless Sky - Savegame Credit Editor</title>
+	
+	<!-- PyScript CSS & JS einbinden -->
 	<link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
 	<script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
-</head>
-<body style="font-family: sans-serif; padding: 20px; background: #222; color: #fff;">
-
-	<h2>Endless Sky Savegame Editor</h2>
 	
-	<input type="file" id="file-input" accept=".txt, .json, *">
-	<button id="process-btn">Verarbeiten</button>
-	<br><br>
-	<a id="download-link" style="display:none; color: #4CAF50; font-weight: bold;">Editiertes Savegame herunterladen</a>
+	<style>
+		body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+		.field { margin-bottom: 15px; }
+		label { display: block; font-weight: bold; margin-bottom: 5px; }
+		input[type="number"] { width: 100%; padding: 8px; box-sizing: border-box; }
+		button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+		button:disabled { background-color: #ccc; }
+		#download-section { margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 5px; display: none; }
+	</style>
+</head>
+<body>
 
-<script type="py">
-		from js import document, Blob, URL
-		from pyodide.ffi import create_proxy
+	<h2>Endless Sky - Savegame Credit Editor</h2>
 
-		async def process_file(event):
-			file_input = document.getElementById("file-input")
-			if not file_input.files.length:
-				return
-			
-			# 1. Datei aus dem HTML-Input lesen
-			file = file_input.files.item(0)
-			text_content = await file.text()
+	<div class="field">
+		<label for="file-input">Savegame auswählen (*.txt):</label>
+		<input type="file" id="file-input" accept=".txt">
+	</div>
 
-			# 2. HIER DEINE PYTHON-LOGIK FÜR ENDLESS SKY
-			# Beispiel: Credits aufstocken / Node-Parsing
-			modified_content = text_content.replace("credits ", "credits 999")
+	<div class="field">
+		<label for="credits-input">Credits:</label>
+		<input type="number" id="credits-input" disabled>
+	</div>
 
-			# 3. Datei im Browser für den Download bereitstellen
-			blob = Blob.new([modified_content], { "type": "text/plain" })
-			download_url = URL.createObjectURL(blob)
+	<button id="save-btn" disabled>Änderungen übernehmen</button>
 
-			download_link = document.getElementById("download-link")
-			download_link.href = download_url
-			download_link.download = f"edited_{file.name}"
-			download_link.style.display = "inline"
-			download_link.innerText = f"Download: edited_{file.name}"
+	<div id="download-section">
+		<p>Datei bereit zum Download:</p>
+		<a id="download-link" href="#" download="savegame.txt">Geändertes Savegame herunterladen</a>
+	</div>
 
-		# Event-Listener an den Button hängen
-		btn = document.getElementById("process-btn")
-		btn.addEventListener("click", create_proxy(process_file))
+	<!-- Python Code innerhalb der HTML-Datei -->
+	<script type="py">
+import re
+import js
+from pyodide.ffi import create_proxy
+
+raw_content = ""
+file_name = "savegame.txt"
+
+async def process_file(event):
+	global raw_content, file_name
+	file_list = event.target.files
+	if file_list.length == 0:
+		return
+	
+	file = file_list.item(0)
+	file_name = file.name
+	
+	# Datei-Inhalt auslesen
+	text = await file.text()
+	raw_content = text
+	
+	# Regex nach credits \d+ im Root/Account-Block
+	match = re.search(r"^\tcredits (\d+)", raw_content, re.MULTILINE)
+	
+	credits_input = js.document.getElementById("credits-input")
+	save_btn = js.document.getElementById("save-btn")
+	
+	if match:
+		current_credits = match.group(1)
+		credits_input.value = current_credits
+		credits_input.disabled = False
+		save_btn.disabled = False
+	else:
+		js.alert("Kein 'credits'-Eintrag im Savegame gefunden.")
+
+def apply_changes(event):
+	global raw_content, file_name
+	new_credits = js.document.getElementById("credits-input").value
+	
+	# Wert per Regex ersetzen
+	updated_content = re.sub(
+		r"^\tcredits \d+",
+		f"\tcredits {new_credits}",
+		raw_content,
+		flags=re.MULTILINE
+	)
+	
+	# Blob für den File-Download in der UI erstellen
+	blob = js.Blob.new([updated_content], {type: "text/plain"})
+	url = js.URL.createObjectURL(blob)
+	
+	download_link = js.document.getElementById("download-link")
+	download_link.href = url
+	download_link.download = file_name
+	
+	js.document.getElementById("download-section").style.display = "block"
+
+# Event-Listener an das DOM binden
+file_input = js.document.getElementById("file-input")
+file_input.addEventListener("change", create_proxy(process_file))
+
+save_btn = js.document.getElementById("save-btn")
+save_btn.addEventListener("click", create_proxy(apply_changes))
 	</script>
 
 </body>
