@@ -1,29 +1,52 @@
 <!DOCTYPE html>
-<html>
+<html lang="de">
 <head>
-    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
-    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+	<meta charset="UTF-8">
+	<title>Endless Sky Savegame Editor</title>
+	<link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
+	<script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
 </head>
-<body>
-    <h2>Savegame Editor</h2>
-    <input type="file" id="file-input" />
-    <button id="process-btn">Verarbeiten</button>
-    <a id="download-link" style="display:none;">Download</a>
+<body style="font-family: sans-serif; padding: 20px; background: #222; color: #fff;">
 
-    <script type="py">
-        from js import document, Uint8Array, File, URL
-        from pyscript import Element
+	<h2>Endless Sky Savegame Editor</h2>
+	
+	<input type="file" id="file-input" accept=".txt, .json, *">
+	<button id="process-btn">Verarbeiten</button>
+	<br><br>
+	<a id="download-link" style="display:none; color: #4CAF50; font-weight: bold;">Editiertes Savegame herunterladen</a>
 
-        def process_file(event):
-            file_input = document.getElementById("file-input")
-            if not file_input.files.length:
-                return
-            
-            file = file_input.files.item(0)
-            # Hier kann der Dateiinhalt mit Python gelesen und bearbeitet werden
-            # ... (Python-Logik)
+	<script type="py">
+		import async_api
+		from js import document, Blob, URL
+		from pyodide.ffi import create_proxy
 
-        document.getElementById("process-btn").addEventListener("click", process_file)
-    </script>
+		async def process_file(event):
+			file_input = document.getElementById("file-input")
+			if not file_input.files.length:
+				return
+			
+			# 1. Datei aus dem HTML-Input lesen
+			file = file_input.files.item(0)
+			text_content = await file.text()
+
+			# 2. HIER DEINE PYTHON-LOGIK FÜR ENDLESS SKY
+			# Beispiel: Credits aufstocken / Node-Parsing
+			modified_content = text_content.replace("credits ", "credits 999")
+
+			# 3. Datei im Browser für den Download bereitstellen
+			blob = Blob.new([modified_content], { "type": "text/plain" })
+			download_url = URL.createObjectURL(blob)
+
+			download_link = document.getElementById("download-link")
+			download_link.href = download_url
+			download_link.download = f"edited_{file.name}"
+			download_link.style.display = "inline"
+			download_link.innerText = f"Download: edited_{file.name}"
+
+		# Event-Listener an den Button hängen
+		btn = document.getElementById("process-btn")
+		btn.addEventListener("click", create_proxy(process_file))
+	</script>
+
 </body>
 </html>
