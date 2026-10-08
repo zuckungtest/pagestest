@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
+    <script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
+</head>
+<body>
+    <h2>Savegame Editor</h2>
+    <input type="file" id="file-input" />
+    <button id="process-btn">Verarbeiten</button>
+    <a id="download-link" style="display:none;">Download</a>
+
+    <script type="py">
+        from js import document, Uint8Array, File, URL
+        from pyscript import Element
+
+        def process_file(event):
+            file_input = document.getElementById("file-input")
+            if not file_input.files.length:
+                return
+            
+            file = file_input.files.item(0)
+            # Hier kann der Dateiinhalt mit Python gelesen und bearbeitet werden
+            # ... (Python-Logik)
+
+        document.getElementById("process-btn").addEventListener("click", process_file)
+    </script>
+</body>
+</html>
