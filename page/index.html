@@ -3,44 +3,66 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Endless Sky - Savegame Credit Editor</title>
+	<title>Endless Sky - Savegame Editor</title>
 	
-	<!-- PyScript CSS & JS einbinden -->
 	<link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
 	<script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
 	
 	<style>
-		body { font-family: sans-serif; max-width: 600px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+		body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; line-height: 1.6; }
 		.field { margin-bottom: 15px; }
 		label { display: block; font-weight: bold; margin-bottom: 5px; }
-		input[type="number"] { width: 100%; padding: 8px; box-sizing: border-box; }
+		input[type="number"], select, textarea { width: 100%; padding: 8px; box-sizing: border-box; }
+		textarea { height: 200px; font-family: monospace; white-space: pre; tab-size: 4; }
 		button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; }
-		button:disabled { background-color: #ccc; }
-		#download-section { margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 5px; display: none; }
+		
+		/* Standardmäßig unsichtbar */
+		.hidden { display: none; }
+		#download-section { margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 5px; }
 	</style>
 </head>
 <body>
 
-	<h2>Endless Sky - Savegame Credit Editor</h2>
+	<h2>Endless Sky - Savegame Editor</h2>
 
+	<!-- 1. Immer sichtbarer Upload-Bereich -->
 	<div class="field">
 		<label for="file-input">Savegame auswählen (*.txt):</label>
 		<input type="file" id="file-input" accept=".txt">
 	</div>
 
-	<div class="field">
-		<label for="credits-input">Credits:</label>
-		<input type="number" id="credits-input" disabled>
+	<!-- 2. Dynamischer Bereich: Erst sichtbar, wenn Savegame geladen ist -->
+	<div id="editor-section" class="hidden">
+		<hr>
+		
+		<div class="field">
+			<label for="credits-input">Credits:</label>
+			<input type="number" id="credits-input">
+		</div>
+
+		<div class="field">
+			<label for="ship-select">Schiff auswählen:</label>
+			<select id="ship-select">
+				<option value="">-- Bitte wählen --</option>
+			</select>
+		</div>
+
+		<!-- Dynamischer Bereich für das ausgewählte Schiff -->
+		<div id="ship-details" class="field hidden">
+			<label for="ship-code">Schiffs-Daten (Raw-Block):</label>
+			<textarea id="ship-code" readonly></textarea>
+		</div>
+
+		<button id="save-btn">Änderungen übernehmen</button>
 	</div>
 
-	<button id="save-btn" disabled>Änderungen übernehmen</button>
-
-	<div id="download-section">
+	<!-- 3. Download-Bereich -->
+	<div id="download-section" class="hidden">
 		<p>Datei bereit zum Download:</p>
 		<a id="download-link" href="#" download="savegame.txt">Geändertes Savegame herunterladen</a>
 	</div>
 
-	<!-- Python Code innerhalb der HTML-Datei -->
+	<!-- Python Logik -->
 	<script type="py">
 import re
 import js
@@ -48,39 +70,72 @@ from pyodide.ffi import create_proxy
 
 raw_content = ""
 file_name = "savegame.txt"
+ships_data = [] # Speichert Dictionaries: [{"name": ..., "full_block": ...}]
 
 async def process_file(event):
-	global raw_content, file_name
+	global raw_content, file_name, ships_data
 	file_list = event.target.files
 	if file_list.length == 0:
 		return
 	
 	file = file_list.item(0)
 	file_name = file.name
+	raw_content = await file.text()
 	
-	# Datei-Inhalt auslesen
-	text = await file.text()
-	raw_content = text
+	# 1. Credits auslesen
+	match_credits = re.search(r"^\tcredits (\d+)", raw_content, re.MULTILINE)
+	if match_credits:
+		js.document.getElementById("credits-input").value = match_credits.group(1)
+
+	# 2. Schiffe parsen (Sucht nach ship "Modell" "Name" oder ship "Modell" Blöcken)
+	ships_data = []
+	# RegEx matched Blöcke, die mit "ship" am Zeilenanfang beginnen bis zur nächsten Zeile ohne Einrückung
+	ship_matches = re.finditer(r"^(ship\s+.*?(?=\n\S|\Z))", raw_content, re.DOTALL | re.MULTILINE)
 	
-	# Regex nach credits \d+ im Root/Account-Block
-	match = re.search(r"^\tcredits (\d+)", raw_content, re.MULTILINE)
+	ship_select = js.document.getElementById("ship-select")
+	ship_select.innerHTML = '<option value="">-- Bitte wählen --</option>' # Dropdown zurücksetzen
 	
-	credits_input = js.document.getElementById("credits-input")
-	save_btn = js.document.getElementById("save-btn")
+	for idx, match in enumerate(ship_matches):
+		full_block = match.group(1)
+		
+		# Name aus dem Schiffsblock extrahieren (falls vorhanden, sonst Modellname)
+		name_match = re.search(r'^\tname "([^"]+)"', full_block, re.MULTILINE)
+		model_match = re.search(r'^ship "([^"]+)"', full_block, re.MULTILINE)
+		
+		ship_name = name_match.group(1) if name_match else (model_match.group(1) if model_match else f"Schiff #{idx+1}")
+		
+		ships_data.append({
+			"name": ship_name,
+			"block": full_block
+		})
+		
+		# Neues <option>-Element im Dropdown erstellen
+		option = js.document.createElement("option")
+		option.value = str(idx)
+		option.textContent = f"{idx+1}. {ship_name}"
+		ship_select.appendChild(option)
+
+	# Editor-Bereich einblenden
+	js.document.getElementById("editor-section").style.display = "block"
+
+def on_ship_selected(event):
+	selected_index = event.target.value
+	ship_details = js.document.getElementById("ship-details")
 	
-	if match:
-		current_credits = match.group(1)
-		credits_input.value = current_credits
-		credits_input.disabled = False
-		save_btn.disabled = False
+	if selected_index != "":
+		idx = int(selected_index)
+		# Scriptteil des Schiffs in die Textarea schreiben
+		js.document.getElementById("ship-code").value = ships_data[idx]["block"]
+		# Textarea-Container einblenden
+		ship_details.style.display = "block"
 	else:
-		js.alert("Kein 'credits'-Eintrag im Savegame gefunden.")
+		ship_details.style.display = "none"
 
 def apply_changes(event):
 	global raw_content, file_name
 	new_credits = js.document.getElementById("credits-input").value
 	
-	# Wert per Regex ersetzen
+	# Credits im Text ersetzen
 	updated_content = re.sub(
 		r"^\tcredits \d+",
 		f"\tcredits {new_credits}",
@@ -88,7 +143,7 @@ def apply_changes(event):
 		flags=re.MULTILINE
 	)
 	
-	# Blob für den File-Download in der UI erstellen
+	# Blob für Download bereitstellen
 	blob = js.Blob.new([updated_content], {type: "text/plain"})
 	url = js.URL.createObjectURL(blob)
 	
@@ -98,12 +153,10 @@ def apply_changes(event):
 	
 	js.document.getElementById("download-section").style.display = "block"
 
-# Event-Listener an das DOM binden
-file_input = js.document.getElementById("file-input")
-file_input.addEventListener("change", create_proxy(process_file))
-
-save_btn = js.document.getElementById("save-btn")
-save_btn.addEventListener("click", create_proxy(apply_changes))
+# Event-Listener registrieren
+js.document.getElementById("file-input").addEventListener("change", create_proxy(process_file))
+js.document.getElementById("ship-select").addEventListener("change", create_proxy(on_ship_selected))
+js.document.getElementById("save-btn").addEventListener("click", create_proxy(apply_changes))
 	</script>
 
 </body>
