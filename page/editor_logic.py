@@ -55,7 +55,7 @@ def extract_ships_from_json(data_tree):
 async def load_remote_ship_data():
 	global json_root_dict, extracted_ships_by_cat
 	cat_select = js.document.getElementById("add-ship-category")
-	target_url = "https://raw.githubusercontent.com/zuckungtest/pagestest/main/page/data.json"
+	target_url = "https://raw.githubusercontent.com/zuckung/ES-DataParser/main/page/data.json"
 	
 	try:
 		response = await pyfetch(target_url)
