@@ -19,20 +19,44 @@ current_ship_index = None
 json_root_dict = {}
 extracted_ships_by_cat = {}
 all_global_ships = {}
+all_global_missions = {}
 
 state = {
 	"pilotname": "", "date": "", "system": "", "planet": "",
 	"prev_system": "", "prev_planet": "", "entry_method": "",
-	"credits": 0, "reputations": {}, "licenses": set(), "ships": [], "plugins": []
+	"credits": 0, "reputations": {}, "licenses": set(), "ships": [], "plugins": [],
+	"conditions": []
 }
 
-def extract_ships_from_json(data_tree):
+def mark_changed():
+	"""Macht den Apply Changes Button sichtbar, sobald eine Änderung erfolgt ist."""
+	save_btn = js.document.getElementById("save-btn")
+	save_btn.classList.remove("hidden")
+
+def extract_data_from_json(data_tree):
 	categories = {}
-	global all_global_ships
+	global all_global_ships, all_global_missions
 	all_global_ships = {}
+	all_global_missions = {}
 
 	if not isinstance(data_tree, dict):
 		return categories
+
+	def search_nodes(tree):
+		if isinstance(tree, dict):
+			for k, v in tree.items():
+				if k == "ship" and isinstance(v, dict):
+					for ship_key, ship_data in v.items():
+						if isinstance(ship_data, dict) and "code" in ship_data:
+							all_global_ships[ship_key] = ship_data["code"]
+				elif k == "mission" and isinstance(v, dict):
+					for m_key, m_data in v.items():
+						if isinstance(m_data, dict) and "code" in m_data:
+							all_global_missions[m_key] = m_data["code"]
+				else:
+					search_nodes(v)
+
+	search_nodes(data_tree)
 
 	for cat_name, cat_content in data_tree.items():
 		if not isinstance(cat_content, dict):
@@ -43,10 +67,7 @@ def extract_ships_from_json(data_tree):
 			cat_ships = {}
 			for ship_key, ship_data in ship_node.items():
 				if isinstance(ship_data, dict) and "code" in ship_data:
-					code_str = ship_data["code"]
-					cat_ships[ship_key] = code_str
-					all_global_ships[ship_key] = code_str
-			
+					cat_ships[ship_key] = ship_data["code"]
 			if cat_ships:
 				categories[cat_name] = cat_ships
 
@@ -55,13 +76,13 @@ def extract_ships_from_json(data_tree):
 async def load_remote_ship_data():
 	global json_root_dict, extracted_ships_by_cat
 	cat_select = js.document.getElementById("add-ship-category")
-	target_url = "https://raw.githubusercontent.com/zuckungtest/pagestest/main/page/data.json"
+	target_url = "https://raw.githubusercontent.com/zuckung/ES-DataParser/main/page/data.json"
 	
 	try:
 		response = await pyfetch(target_url)
 		if response.status == 200:
 			json_root_dict = await response.json()
-			extracted_ships_by_cat = extract_ships_from_json(json_root_dict)
+			extracted_ships_by_cat = extract_data_from_json(json_root_dict)
 
 			cat_select.innerHTML = '<option value="">-- Select Category / Race --</option>'
 			for cat_key in sorted(extracted_ships_by_cat.keys()):
@@ -99,7 +120,52 @@ def on_category_changed(event):
 
 	model_select.disabled = False
 
-def build_ship_syntax(selected_key, cat_key="", custom_name=""):
+def parse_es_blocks(code_str):
+	"""Zerlegt einen Endless Sky Node-Code in hierarchische Blöcke und Einzel-Statements."""
+	lines = code_str.splitlines()
+	if not lines:
+		return {}, [], ""
+
+	first_line = lines[0]
+	blocks = {}      # Schlüssel: Block-Name (z. B. "outfits", "attributes")
+	statements = []  # Liste von Unterzeilen (Statement / Positionszeilen)
+
+	current_block = None
+	current_block_lines = []
+
+	for line in lines[1:]:
+		if not line.strip():
+			continue
+		
+		# Prüfen, ob Zeile ein Unterblock ist (genau 1 Tab Einrückung, endet nicht mit Wert bzw. leitet Unterblock ein)
+		indent_level = len(line) - len(line.lstrip('\t'))
+		stripped = line.strip()
+
+		if indent_level == 1:
+			# Prüfen ob bekannter Block-Bezeichner oder Sub-Block
+			if stripped in ["attributes", "outfits", "weapon", "engine", "gun", "turret", "leak", "explode"]:
+				if current_block:
+					blocks[current_block] = current_block_lines
+				current_block = stripped
+				current_block_lines = [line]
+			else:
+				if current_block:
+					blocks[current_block] = current_block_lines
+					current_block = None
+				statements.append(line)
+		else:
+			if current_block:
+				current_block_lines.append(line)
+			else:
+				statements.append(line)
+
+	if current_block:
+		blocks[current_block] = current_block_lines
+
+	return blocks, statements, first_line
+
+def build_ship_syntax(selected_key, cat_key=""):
+	"""Löst Vererbung & Overrides von Endless Sky Schiff-Varianten vollständig auf."""
 	raw_code = ""
 	if cat_key and cat_key in extracted_ships_by_cat:
 		raw_code = extracted_ships_by_cat[cat_key].get(selected_key, "")
@@ -113,53 +179,55 @@ def build_ship_syntax(selected_key, cat_key="", custom_name=""):
 	lines = raw_code.splitlines()
 	first_line = lines[0] if lines else f'ship "{selected_key}"'
 
-	# Prüfen, ob es sich um eine Variante handelt (z.B. ship "argosy" "argosy missiles")
-	parts = first_line.split()
+	parts_quoted = [p for p in first_line.split('"') if p.strip()]
+	
 	base_ship_name = None
-	if len(parts) > 2:
-		base_ship_name = parts[1].strip('"')
+	if len(parts_quoted) >= 2 and parts_quoted[0].strip().startswith("ship"):
+		base_ship_name = parts_quoted[1]
 
-	final_lines = []
-
-	if base_ship_name and base_ship_name in all_global_ships:
-		# Varianten-Logik: Hole das Basisschiff und ersetze den Header durch das reine Basisschiff
+	# Fall 1: Ist eine Variante, die von einem Basis-Schiff erbt
+	if base_ship_name and base_ship_name in all_global_ships and base_ship_name != selected_key.strip('"'):
 		base_code = all_global_ships[base_ship_name]
-		base_lines = base_code.splitlines()
 		
-		# Verwende strikt den Header des Basisschiffs (ohne Varianten-Zusatz)
-		final_lines.append(f'ship "{base_ship_name}"')
+		base_blocks, base_statements, base_header = parse_es_blocks(base_code)
+		var_blocks, var_statements, var_header = parse_es_blocks(raw_code)
+
+		final_lines = [f'ship "{base_ship_name}"', '\tname ""']
+
+		# Blöcke mergen (Variante überschreibt Basis-Block komplett)
+		merged_blocks = base_blocks.copy()
+		for b_name, b_lines in var_blocks.items():
+			merged_blocks[b_name] = b_lines
+
+		# Statements / Positionsmerkmale zusammenführen
+		merged_statements = base_statements.copy()
 		
-		# Name-Zeile
-		if custom_name.strip():
-			final_lines.append(f'\tname "{custom_name.strip()}"')
-		else:
-			final_lines.append('\tname ""')
+		# Gun / Engine Overrides anwenden falls in Variante vorhanden
+		var_guns = [s for s in var_statements if s.strip().startswith("gun")]
+		if var_guns:
+			merged_statements = [s for s in merged_statements if not s.strip().startswith("gun")] + var_guns
 
-		# Übernehme Zeilen des Basisschiffs und überschreibe/ergänze mit Varianten-Zeilen
-		for line in base_lines[1:]:
-			if line.strip().startswith("name "):
-				continue
-			final_lines.append(line)
+		var_engines = [s for s in var_statements if s.strip().startswith("engine")]
+		if var_engines:
+			merged_statements = [s for s in merged_statements if not s.strip().startswith("engine")] + var_engines
 
-		for line in lines[1:]:
-			if line.strip().startswith("name "):
-				continue
-			final_lines.append(line)
+		for stmt in merged_statements:
+			if not stmt.strip().startswith("name "):
+				final_lines.append(stmt)
+
+		for b_name, b_lines in merged_blocks.items():
+			final_lines.extend(b_lines)
+
 	else:
-		# Normales Schiff
-		final_lines.append(first_line)
-		
-		if custom_name.strip():
-			final_lines.append(f'\tname "{custom_name.strip()}"')
-		else:
-			final_lines.append('\tname ""')
+		# Fall 2: Ist ein Basis-Schiff
+		clean_header = f'ship "{base_ship_name}"' if base_ship_name else first_line
+		final_lines = [clean_header, '\tname ""']
 
 		for line in lines[1:]:
 			if line.strip().startswith("name "):
 				continue
 			final_lines.append(line)
 
-	# Standort anhängen
 	if state["system"]:
 		final_lines.append(f'\tsystem "{state["system"]}"')
 	if state["planet"]:
@@ -170,7 +238,6 @@ def build_ship_syntax(selected_key, cat_key="", custom_name=""):
 def update_ship_preview(event=None):
 	cat_key = js.document.getElementById("add-ship-category").value
 	model_key = js.document.getElementById("add-ship-model").value
-	custom_name = js.document.getElementById("add-ship-name").value
 	preview_area = js.document.getElementById("add-ship-preview")
 	add_btn = js.document.getElementById("add-ship-btn")
 
@@ -179,7 +246,7 @@ def update_ship_preview(event=None):
 		add_btn.disabled = True
 		return
 
-	code_preview = build_ship_syntax(model_key, cat_key, custom_name)
+	code_preview = build_ship_syntax(model_key, cat_key)
 	preview_area.value = code_preview
 	add_btn.disabled = False
 
@@ -187,12 +254,11 @@ def add_new_ship(event):
 	global current_ship_index
 	cat_key = js.document.getElementById("add-ship-category").value
 	model_key = js.document.getElementById("add-ship-model").value
-	custom_name = js.document.getElementById("add-ship-name").value
 	
 	if not model_key:
 		return
 		
-	ship_code_block = build_ship_syntax(model_key, cat_key, custom_name)
+	ship_code_block = build_ship_syntax(model_key, cat_key)
 	state["ships"].append(ship_code_block)
 	
 	render_ships_dropdown()
@@ -201,11 +267,8 @@ def add_new_ship(event):
 	
 	current_ship_index = new_index
 	js.document.getElementById("ship-code").value = ship_code_block
-	js.document.getElementById("ship-details").style.display = "block"
-	
-	# HINWEIS: Dropdowns werden hier bewusst NICHT resettet, Positionen bleiben erhalten.
-	js.document.getElementById("add-ship-name").value = ""
-	js.document.getElementById("add-ship-preview.value") # no-op
+	js.document.getElementById("ship-details").classList.remove("hidden")
+	mark_changed()
 
 def format_filesize(size_in_bytes):
 	if size_in_bytes < 1024:
@@ -221,6 +284,7 @@ def parse_savegame(content):
 	licenses = set()
 	ships = []
 	plugins = []
+	conditions = []
 	
 	current_ship_lines = []
 	active_block = None
@@ -254,6 +318,9 @@ def parse_savegame(content):
 		elif line.startswith("licenses"):
 			active_block = "licenses"
 			continue
+		elif line.startswith("conditions"):
+			active_block = "conditions"
+			continue
 		elif line.startswith("# What you own:"):
 			active_block = "ships"
 			continue
@@ -271,12 +338,16 @@ def parse_savegame(content):
 			parts = line.strip().rsplit(" ", 1)
 			if len(parts) == 2:
 				try:
-					reputations[parts[0].strip('"')] = float(parts[1])
+					clean_val = parts[1].replace(",", ".")
+					reputations[parts[0].strip('"')] = float(clean_val)
 				except ValueError:
 					pass
 
 		elif active_block == "licenses" and line.startswith("\t"):
 			licenses.add(line.strip().strip('"'))
+
+		elif active_block == "conditions" and line.startswith("\t"):
+			conditions.append(line.strip())
 
 		elif active_block == "plugins" and line.startswith("\t"):
 			plugins.append(line.strip())
@@ -304,7 +375,7 @@ def parse_savegame(content):
 		"pilotname": pilotname, "date": date_str, "system": system, "planet": planet,
 		"prev_system": prev_system, "prev_planet": prev_planet, "entry_method": entry_method,
 		"credits": credits_val, "reputations": reputations, "licenses": licenses, 
-		"ships": ships, "plugins": plugins
+		"ships": ships, "plugins": plugins, "conditions": conditions
 	}
 
 async def process_file(event):
@@ -338,10 +409,201 @@ async def process_file(event):
 	render_reputations_tables()
 	render_ships_dropdown()
 	render_plugins_list()
+	render_conditions_view()
 
-	js.document.getElementById("status-container").style.display = "block"
-	js.document.getElementById("editor-section").style.display = "block"
-	js.document.getElementById("download-section").style.display = "none"
+	js.document.getElementById("status-container").classList.remove("hidden")
+	js.document.getElementById("editor-section").classList.remove("hidden")
+	js.document.getElementById("download-section").classList.add("hidden")
+	js.document.getElementById("save-btn").classList.add("hidden")
+
+def get_condition_key_and_state(line):
+	clean_line = line.strip()
+	key_part = clean_line
+	if clean_line.startswith('"'):
+		parts = clean_line.split('"')
+		if len(parts) >= 2:
+			key_part = parts[1]
+	return key_part
+
+def extract_mission_name_from_key(key):
+	suffixes = [": offered", ": done", ": failed", ": declined", ": active", ": aborted"]
+	for suf in suffixes:
+		if key.endswith(suf):
+			return key[:-len(suf)].strip()
+	return None
+
+def analyze_mission_outcomes(script_code):
+	outcomes = set(["offered"])
+
+	for line in script_code.splitlines():
+		sline = line.strip()
+
+		if sline.startswith("decline") or sline.startswith("to decline") or sline.startswith("on decline"):
+			outcomes.add("declined")
+
+		if sline.startswith("accept") or sline.startswith("to accept") or sline.startswith("on accept"):
+			outcomes.add("active")
+
+		if sline.startswith("complete") or sline.startswith("to complete"):
+			outcomes.add("done")
+			outcomes.add("active")
+
+		if sline.startswith("fail") or sline.startswith("to fail") or sline.startswith("on fail"):
+			outcomes.add("failed")
+
+		if sline.startswith("abort") or sline.startswith("to abort") or sline.startswith("on abort"):
+			outcomes.add("aborted")
+
+		if sline.startswith("on complete"):
+			outcomes.add("done")
+			outcomes.add("active")
+			outcomes.add("failed")
+			outcomes.add("declined")
+
+	order = ["offered", "active", "done", "declined", "failed", "aborted"]
+	sorted_outcomes = [o for o in order if o in outcomes]
+	
+	return ", ".join(sorted_outcomes)
+
+def show_mission_detail(mission_name):
+	detail_box = js.document.getElementById("mission-detail-box")
+	detail_title = js.document.getElementById("mission-detail-title")
+	detail_code = js.document.getElementById("mission-detail-code")
+	outcome_display = js.document.getElementById("mission-outcome-display")
+
+	if mission_name in all_global_missions:
+		script_code = all_global_missions[mission_name]
+		detail_title.textContent = f'Mission Script Node: "{mission_name}"'
+		detail_code.value = script_code
+
+		possible_outcomes = analyze_mission_outcomes(script_code)
+		outcome_display.textContent = f"Possible mission outcome: {possible_outcomes}"
+
+		detail_box.classList.remove("hidden")
+
+def delete_condition(raw_line_to_delete):
+	key = get_condition_key_and_state(raw_line_to_delete)
+	mission_name = extract_mission_name_from_key(key)
+
+	lines_to_remove = {raw_line_to_delete}
+
+	if mission_name:
+		offered_key = f"{mission_name}: offered"
+		for line in state["conditions"]:
+			if get_condition_key_and_state(line) == offered_key:
+				lines_to_remove.add(line)
+
+	state["conditions"] = [line for line in state["conditions"] if line not in lines_to_remove]
+	mark_changed()
+	render_conditions_view()
+
+def render_conditions_view(event=None):
+	tbody = js.document.getElementById("conditions-table-body")
+	count_display = js.document.getElementById("cond-count-display")
+	js.document.getElementById("mission-detail-box").classList.add("hidden")
+
+	tbody.innerHTML = ""
+
+	show_vanilla = js.document.getElementById("filter-vanilla").checked
+	show_plugin = js.document.getElementById("filter-plugin").checked
+	show_other = js.document.getElementById("filter-other").checked
+	show_problematic = js.document.getElementById("filter-problematic").checked
+
+	all_conds = state["conditions"]
+
+	green_bases = set()
+	red_bases = set()
+	yellow_bases = set()  # Basis-Namen für aktive Missionen
+
+	for line in all_conds:
+		key = get_condition_key_and_state(line)
+		if ": active" in key:
+			yellow_bases.add(key.rsplit(":", 1)[0])
+		elif ": done" in key:
+			green_bases.add(key.rsplit(":", 1)[0])
+		elif ": failed" in key or ": declined" in key or ": aborted" in key:
+			red_bases.add(key.rsplit(":", 1)[0])
+
+	rendered_count = 0
+
+	for line in all_conds:
+		key = get_condition_key_and_state(line)
+		mission_name = extract_mission_name_from_key(key)
+
+		cond_type = "other"
+		if mission_name:
+			if mission_name in all_global_missions:
+				cond_type = "vanilla"
+			else:
+				cond_type = "plugin"
+
+		is_problematic = ": failed" in key or ": declined" in key or ": aborted" in key or (": offered" in key and key.rsplit(":", 1)[0] in red_bases)
+
+		type_matched = False
+		if cond_type == "vanilla" and show_vanilla:
+			type_matched = True
+		elif cond_type == "plugin" and show_plugin:
+			type_matched = True
+		elif cond_type == "other" and show_other:
+			type_matched = True
+
+		if not type_matched:
+			continue
+
+		if show_problematic and not is_problematic:
+			continue
+
+		rendered_count += 1
+
+		tr = js.document.createElement("tr")
+		
+		# Spalte 0: Delete Button
+		td_action = js.document.createElement("td")
+		btn_del = js.document.createElement("button")
+		btn_del.className = "btn btn-delete"
+		btn_del.textContent = "Delete?"
+		btn_del.addEventListener("click", create_proxy(lambda e, l=line: delete_condition(l)))
+		td_action.appendChild(btn_del)
+
+		# Spalte 1: Condition Text
+		td_text = js.document.createElement("td")
+		td_text.textContent = line
+
+		# Spalte 2: Type / Badge (Rechtsbündig)
+		td_type = js.document.createElement("td")
+		td_type.style.textAlign = "right"
+
+		span = js.document.createElement("span")
+		if cond_type == "vanilla":
+			span.className = "type-badge badge-vanilla"
+			span.textContent = "Vanilla Mission"
+			span.addEventListener("click", create_proxy(lambda e, m=mission_name: show_mission_detail(m)))
+		elif cond_type == "plugin":
+			span.className = "type-badge badge-plugin"
+			span.textContent = "Probably Plugin Mission"
+		else:
+			span.className = "type-badge badge-other"
+			span.textContent = "Other Condition"
+
+		td_type.appendChild(span)
+
+		# Farbmodi zuweisen (Gelb wenn ": active" ODER wenn ": offered" zu einer aktiven Mission gehört)
+		base_name = key.rsplit(":", 1)[0] if ":" in key else key
+		if ": active" in key or (": offered" in key and base_name in yellow_bases):
+			tr.className = "cond-row-yellow"
+		elif ": done" in key or (": offered" in key and base_name in green_bases):
+			tr.className = "cond-row-green"
+		elif is_problematic:
+			tr.className = "cond-row-red"
+		else:
+			tr.className = "cond-row-blue"
+
+		tr.appendChild(td_action)
+		tr.appendChild(td_text)
+		tr.appendChild(td_type)
+		tbody.appendChild(tr)
+
+	count_display.textContent = f"{rendered_count} / {len(all_conds)} Conditions"
 
 def render_licenses_grid():
 	container = js.document.getElementById("license-checkbox-container")
@@ -370,20 +632,21 @@ def on_license_toggle(event):
 		state["licenses"].add(lic_name)
 	else:
 		state["licenses"].discard(lic_name)
+	mark_changed()
 
 def render_reputations_tables():
 	t1 = js.document.getElementById("reputations-table-1")
 	t2 = js.document.getElementById("reputations-table-2")
 	t3 = js.document.getElementById("reputations-table-3")
+	t4 = js.document.getElementById("reputations-table-4")
 	t1.innerHTML = ""
 	t2.innerHTML = ""
 	t3.innerHTML = ""
+	t4.innerHTML = ""
 	
 	items = list(state["reputations"].items())
 	total = len(items)
-	
-	col1_size = (total + 2) // 3
-	col2_size = (total - col1_size + 1) // 2
+	col_size = (total + 3) // 4
 	
 	for idx, (faction, val) in enumerate(items):
 		tr = js.document.createElement("tr")
@@ -396,7 +659,13 @@ def render_reputations_tables():
 		inp = js.document.createElement("input")
 		inp.type = "number"
 		inp.step = "any"
-		inp.value = str(val)
+		inp.setAttribute("lang", "en-US")
+		
+		if isinstance(val, float) and val.is_integer():
+			inp.value = str(int(val))
+		else:
+			inp.value = str(val).replace(",", ".")
+			
 		inp.dataset.faction = faction
 		inp.addEventListener("change", create_proxy(on_reputation_change))
 		
@@ -404,12 +673,14 @@ def render_reputations_tables():
 		tr.appendChild(td_faction)
 		tr.appendChild(td_val)
 		
-		if idx < col1_size:
+		if idx < col_size:
 			t1.appendChild(tr)
-		elif idx < col1_size + col2_size:
+		elif idx < col_size * 2:
 			t2.appendChild(tr)
-		else:
+		elif idx < col_size * 3:
 			t3.appendChild(tr)
+		else:
+			t4.appendChild(tr)
 
 def render_plugins_list():
 	container = js.document.getElementById("plugins-list-container")
@@ -451,10 +722,15 @@ def render_ships_dropdown():
 
 def on_reputation_change(event):
 	faction = event.target.dataset.faction
+	val_str = event.target.value.replace(",", ".")
 	try:
-		state["reputations"][faction] = float(event.target.value)
+		state["reputations"][faction] = float(val_str) if "." in val_str else int(val_str)
+		mark_changed()
 	except ValueError:
 		pass
+
+def on_credits_change(event):
+	mark_changed()
 
 def save_current_ship_code_to_state():
 	global current_ship_index
@@ -472,23 +748,25 @@ def on_ship_selected(event):
 	if selected_value != "":
 		current_ship_index = int(selected_value)
 		js.document.getElementById("ship-code").value = state["ships"][current_ship_index]
-		ship_details.style.display = "block"
+		ship_details.classList.remove("hidden")
 	else:
 		current_ship_index = None
-		ship_details.style.display = "none"
+		ship_details.classList.add("hidden")
 
 def on_ship_code_input(event):
 	save_current_ship_code_to_state()
+	mark_changed()
 
 def switch_tab(section_id):
 	save_current_ship_code_to_state()
 	
-	js.document.getElementById("section-ships").style.display = "none"
-	js.document.getElementById("section-reputations").style.display = "none"
-	js.document.getElementById("section-licenses").style.display = "none"
-	js.document.getElementById("section-plugins").style.display = "none"
+	js.document.getElementById("section-ships").classList.add("hidden")
+	js.document.getElementById("section-reputations").classList.add("hidden")
+	js.document.getElementById("section-licenses").classList.add("hidden")
+	js.document.getElementById("section-conditions").classList.add("hidden")
+	js.document.getElementById("section-plugins").classList.add("hidden")
 	
-	js.document.getElementById(section_id).style.display = "block"
+	js.document.getElementById(section_id).classList.remove("hidden")
 
 def apply_changes(event):
 	global raw_content, file_name, state
@@ -516,7 +794,15 @@ def apply_changes(event):
 			skip_block = True
 			updated_lines.append('"reputation with"')
 			for faction, value in state["reputations"].items():
-				updated_lines.append(f'\t"{faction}" {value}')
+				val_str = str(value).replace(",", ".")
+				updated_lines.append(f'\t"{faction}" {val_str}')
+			continue
+
+		if line.startswith("conditions"):
+			skip_block = True
+			updated_lines.append("conditions")
+			for cond_line in state["conditions"]:
+				updated_lines.append(f'\t{cond_line}')
 			continue
 
 		if line.startswith("# What you own:"):
@@ -541,7 +827,7 @@ def apply_changes(event):
 	download_link.href = url
 	download_link.download = file_name
 	
-	js.document.getElementById("download-section").style.display = "flex"
+	js.document.getElementById("download-section").classList.remove("hidden")
 
 def handle_textarea_tab(event):
 	if event.key == "Tab":
@@ -552,22 +838,28 @@ def handle_textarea_tab(event):
 
 		textarea.value = textarea.value[:start] + "\t" + textarea.value[end:]
 		textarea.selectionStart = textarea.selectionEnd = start + 1
-		save_current_ship_code_to_state()
 
 # Event Listener Binding
 js.document.getElementById("file-input").addEventListener("change", create_proxy(process_file))
+js.document.getElementById("credits-input").addEventListener("input", create_proxy(on_credits_change))
 js.document.getElementById("ship-select").addEventListener("change", create_proxy(on_ship_selected))
 js.document.getElementById("ship-code").addEventListener("input", create_proxy(on_ship_code_input))
 js.document.getElementById("ship-code").addEventListener("keydown", create_proxy(handle_textarea_tab))
 
 js.document.getElementById("add-ship-category").addEventListener("change", create_proxy(on_category_changed))
 js.document.getElementById("add-ship-model").addEventListener("change", create_proxy(update_ship_preview))
-js.document.getElementById("add-ship-name").addEventListener("input", create_proxy(update_ship_preview))
 js.document.getElementById("add-ship-btn").addEventListener("click", create_proxy(add_new_ship))
+
+# Checkbox-Filter Event Bindings
+js.document.getElementById("filter-vanilla").addEventListener("change", create_proxy(render_conditions_view))
+js.document.getElementById("filter-plugin").addEventListener("change", create_proxy(render_conditions_view))
+js.document.getElementById("filter-other").addEventListener("change", create_proxy(render_conditions_view))
+js.document.getElementById("filter-problematic").addEventListener("change", create_proxy(render_conditions_view))
 
 js.document.getElementById("show-ships-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-ships")))
 js.document.getElementById("show-rep-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-reputations")))
 js.document.getElementById("show-lic-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-licenses")))
+js.document.getElementById("show-cond-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-conditions")))
 js.document.getElementById("show-plug-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-plugins")))
 
 js.document.getElementById("save-btn").addEventListener("click", create_proxy(apply_changes))
