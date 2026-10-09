@@ -1,79 +1,483 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Endless Sky - Savegame Editor</title>
 	
+	<!-- PyScript CSS & JS -->
 	<link rel="stylesheet" href="https://pyscript.net/releases/2024.1.1/core.css">
 	<script type="module" src="https://pyscript.net/releases/2024.1.1/core.js"></script>
 	
 	<style>
-		body { font-family: sans-serif; max-width: 700px; margin: 40px auto; padding: 20px; line-height: 1.6; }
-		.field { margin-bottom: 15px; }
-		label { display: block; font-weight: bold; margin-bottom: 5px; }
-		input[type="number"], select, textarea { width: 100%; padding: 8px; box-sizing: border-box; }
-		textarea { height: 200px; font-family: monospace; white-space: pre; tab-size: 4; }
-		button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+		:root {
+			--bg-color: #0f172a;
+			--card-bg: #1e293b;
+			--border-color: #334155;
+			--text-color: #f8fafc;
+			--text-muted: #94a3b8;
+			
+			/* Custom Silver Button Scheme */
+			--btn-silver-bg: #475569;
+			--btn-silver-hover: #64748b;
+			--btn-silver-border: #64748b;
+			
+			/* Custom Emerald Green Action Scheme */
+			--btn-save-bg: #059669;
+			--btn-save-hover: #10b981;
+			--btn-save-border: #34d399;
+
+			--input-bg: #0f172a;
+			--success-bg: #064e3b;
+			--success-border: #059669;
+			--success-text: #6ee7b7;
+		}
+
+		body {
+			font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+			max-width: 950px;
+			margin: 15px auto;
+			padding: 0 15px;
+			line-height: 1.4;
+			background-color: var(--bg-color);
+			color: var(--text-color);
+		}
+
+		.card {
+			background: var(--card-bg);
+			padding: 12px 15px;
+			border-radius: 6px;
+			border: 1px solid var(--border-color);
+			box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+			margin-bottom: 12px;
+		}
+
+		.header-title {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 10px;
+			border-bottom: 1px solid var(--border-color);
+			padding-bottom: 8px;
+		}
+
+		.header-title h2 { margin: 0; font-size: 1.2em; font-weight: 600; letter-spacing: -0.02em; }
+
+		/* Custom File Upload Styling */
+		.upload-inline {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+		}
+
+		#file-name-display {
+			font-size: 0.85em;
+			color: var(--text-muted);
+			font-style: italic;
+		}
+
+		/* Header Action Bar */
+		.header-actions {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			margin-top: 10px;
+			padding-top: 10px;
+			border-top: 1px dashed var(--border-color);
+		}
+
+		#download-section {
+			background: var(--success-bg);
+			border: 1px solid var(--success-border);
+			color: var(--success-text);
+			padding: 5px 12px;
+			border-radius: 4px;
+			font-size: 0.85em;
+			display: flex;
+			align-items: center;
+			gap: 6px;
+		}
+
+		#download-link { font-weight: 600; color: #a7f3d0; text-decoration: underline; }
+
+		/* Compact Info Grid */
+		.info-grid {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+			gap: 8px;
+			background: var(--input-bg);
+			padding: 8px 12px;
+			border-radius: 4px;
+			border: 1px solid var(--border-color);
+			margin-bottom: 10px;
+		}
+
+		.info-item { display: flex; flex-direction: column; }
+		.info-label { font-size: 0.68em; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.03em; }
+		.info-value { font-size: 0.85em; font-weight: 600; color: var(--text-color); word-break: break-word; }
+
+		.credits-inline {
+			display: flex;
+			align-items: center;
+			gap: 10px;
+			font-size: 0.85em;
+		}
+
+		.credits-inline label { margin: 0; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+		.credits-inline input[type="number"] { width: 180px; }
+
+		/* 3-Column License Grid */
+		.license-grid {
+			display: grid;
+			grid-template-columns: repeat(3, 1fr);
+			gap: 4px 10px;
+		}
+
+		.license-checkbox {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			font-size: 0.8em;
+			cursor: pointer;
+			padding: 3px 6px;
+			border-radius: 4px;
+			border: 1px solid transparent;
+		}
+
+		.license-checkbox:hover { 
+			background-color: var(--input-bg);
+			border-color: var(--border-color);
+		}
 		
-		/* Standardmäßig unsichtbar */
+		.license-checkbox input[type="checkbox"] { 
+			width: 14px; 
+			height: 14px; 
+			accent-color: var(--btn-save-hover); 
+			cursor: pointer; 
+		}
+
+		/* 3-Column Reputations Grid */
+		.rep-grid {
+			display: grid;
+			grid-template-columns: repeat(3, 1fr);
+			gap: 10px;
+		}
+
+		table.rep-table {
+			width: 100%;
+			border-collapse: collapse;
+			font-size: 0.82em;
+		}
+
+		table.rep-table td {
+			padding: 3px 4px;
+			border-bottom: 1px solid var(--border-color);
+		}
+
+		table.rep-table td.faction-cell {
+			width: 1%;
+			white-space: nowrap;
+			padding-right: 8px;
+			font-weight: 500;
+			color: var(--text-color);
+		}
+
+		table.rep-table td input {
+			width: 80px;
+			padding: 2px 4px;
+			font-size: 0.9em;
+		}
+
+		/* Plugins List Styling */
+		.plugins-list {
+			margin: 0;
+			padding-left: 20px;
+			font-family: 'Courier New', Courier, monospace;
+			font-size: 0.85em;
+			color: var(--text-color);
+		}
+
+		.plugins-list li { padding: 2px 0; }
+
+		input[type="text"], input[type="number"], select, textarea {
+			padding: 6px 10px;
+			background-color: var(--input-bg);
+			border: 1px solid var(--border-color);
+			color: var(--text-color);
+			border-radius: 4px;
+			box-sizing: border-box;
+			font-family: inherit;
+		}
+
+		input:focus, select:focus, textarea:focus { 
+			outline: none; 
+			border-color: var(--btn-silver-hover); 
+		}
+
+		select, textarea { width: 100%; }
+
+		textarea {
+			height: 350px;
+			font-family: 'Courier New', Courier, monospace;
+			white-space: pre;
+			tab-size: 4;
+			font-size: 0.85em;
+		}
+
+		/* Buttons Styling */
+		.btn {
+			padding: 6px 14px;
+			background-color: var(--btn-silver-bg);
+			color: #f8fafc;
+			border: 1px solid var(--btn-silver-border);
+			border-radius: 4px;
+			font-weight: 600;
+			font-size: 0.85em;
+			cursor: pointer;
+			transition: background-color 0.15s ease, border-color 0.15s ease;
+			display: inline-flex;
+			align-items: center;
+		}
+
+		.btn:hover { 
+			background-color: var(--btn-silver-hover); 
+			border-color: #cbd5e1;
+		}
+
+		/* Emerald Save Button */
+		.btn-save {
+			background-color: var(--btn-save-bg);
+			border-color: var(--btn-save-border);
+			color: #ffffff;
+		}
+
+		.btn-save:hover {
+			background-color: var(--btn-save-hover);
+			border-color: #6ee7b7;
+		}
+
+		.btn-group { display: flex; gap: 8px; margin-bottom: 10px; }
+
 		.hidden { display: none; }
-		#download-section { margin-top: 20px; padding: 15px; background: #e9ecef; border-radius: 5px; }
 	</style>
 </head>
 <body>
 
-	<h2>Endless Sky - Savegame Editor</h2>
+	<!-- Compact Header Card -->
+	<div class="card">
+		<div class="header-title">
+			<h2>Endless Sky - Savegame Editor</h2>
+			<div class="upload-inline">
+				<span id="file-name-display">No file chosen</span>
+				<!-- Native File Input Hidden -->
+				<input type="file" id="file-input" accept=".txt" style="display: none;">
+				<!-- Custom Language-Independent Button -->
+				<label for="file-input" class="btn">Browse File...</label>
+			</div>
+		</div>
 
-	<!-- 1. Immer sichtbarer Upload-Bereich -->
-	<div class="field">
-		<label for="file-input">Savegame auswählen (*.txt):</label>
-		<input type="file" id="file-input" accept=".txt">
+		<div id="status-container" class="hidden">
+			<div class="info-grid">
+				<div class="info-item"><span class="info-label">Pilot</span><span class="info-value" id="info-pilot">-</span></div>
+				<div class="info-item"><span class="info-label">Date</span><span class="info-value" id="info-date">-</span></div>
+				<div class="info-item"><span class="info-label">System</span><span class="info-value" id="info-system">-</span></div>
+				<div class="info-item"><span class="info-label">Planet</span><span class="info-value" id="info-planet">-</span></div>
+				<div class="info-item"><span class="info-label">Prev. System</span><span class="info-value" id="info-prev-system">-</span></div>
+				<div class="info-item"><span class="info-label">Prev. Planet</span><span class="info-value" id="info-prev-planet">-</span></div>
+				<div class="info-item"><span class="info-label">Entry Method</span><span class="info-value" id="info-entry-method">-</span></div>
+				<div class="info-item"><span class="info-label">File Size</span><span class="info-value" id="info-filesize">-</span></div>
+			</div>
+
+			<div class="credits-inline">
+				<label for="credits-input">Credits:</label>
+				<input type="number" id="credits-input">
+			</div>
+
+			<!-- Action Controls & Download Area in Header -->
+			<div class="header-actions">
+				<button class="btn btn-save" id="save-btn">Apply Changes & Generate Savegame</button>
+				
+				<div id="download-section" class="hidden">
+					<span>Savegame ready: </span>
+					<a id="download-link" href="#" download="savegame.txt">Download File</a>
+				</div>
+			</div>
+		</div>
 	</div>
 
-	<!-- 2. Dynamischer Bereich: Erst sichtbar, wenn Savegame geladen ist -->
+	<!-- Main Editor UI -->
 	<div id="editor-section" class="hidden">
-		<hr>
-		
-		<div class="field">
-			<label for="credits-input">Credits:</label>
-			<input type="number" id="credits-input">
+
+		<div class="btn-group">
+			<button class="btn" id="show-ships-btn">Ships</button>
+			<button class="btn" id="show-rep-btn">Reputations</button>
+			<button class="btn" id="show-lic-btn">Licenses</button>
+			<button class="btn" id="show-plug-btn">Plugins</button>
 		</div>
 
-		<div class="field">
-			<label for="ship-select">Schiff auswählen:</label>
-			<select id="ship-select">
-				<option value="">-- Bitte wählen --</option>
-			</select>
+		<!-- Ships Section -->
+		<div id="section-ships" class="card">
+			<div style="margin-bottom: 8px;">
+				<select id="ship-select">
+					<option value="">-- Select a ship --</option>
+				</select>
+			</div>
+
+			<div id="ship-details" class="hidden">
+				<textarea id="ship-code" spellcheck="false"></textarea>
+			</div>
 		</div>
 
-		<!-- Dynamischer Bereich für das ausgewählte Schiff -->
-		<div id="ship-details" class="field hidden">
-			<label for="ship-code">Schiffs-Daten (Raw-Block):</label>
-			<textarea id="ship-code" readonly></textarea>
+		<!-- Reputations Section (3-Column Grid) -->
+		<div id="section-reputations" class="card hidden">
+			<div class="rep-grid">
+				<table class="rep-table"><tbody id="reputations-table-1"></tbody></table>
+				<table class="rep-table"><tbody id="reputations-table-2"></tbody></table>
+				<table class="rep-table"><tbody id="reputations-table-3"></tbody></table>
+			</div>
 		</div>
 
-		<button id="save-btn">Änderungen übernehmen</button>
+		<!-- Licenses Section -->
+		<div id="section-licenses" class="card hidden">
+			<div class="license-grid" id="license-checkbox-container"></div>
+		</div>
+
+		<!-- Plugins Section (Read-Only) -->
+		<div id="section-plugins" class="card hidden">
+			<h3 style="margin-top:0; font-size: 0.9em; color: var(--text-muted);">Active Plugins in Savegame</h3>
+			<ul class="plugins-list" id="plugins-list-container"></ul>
+		</div>
+
 	</div>
 
-	<!-- 3. Download-Bereich -->
-	<div id="download-section" class="hidden">
-		<p>Datei bereit zum Download:</p>
-		<a id="download-link" href="#" download="savegame.txt">Geändertes Savegame herunterladen</a>
-	</div>
-
-	<!-- Python Logik -->
+	<!-- Python Logic -->
 	<script type="py">
-import re
 import js
 from pyodide.ffi import create_proxy
 
+ALL_LICENSES = [
+	"Avgi Atomics", "Avgi Torch", "Carrier", "City-Ship", "Coalition", "Cruiser",
+	"Gegno Civilian", "Gegno Driller", "Heliarch", "Hicemus Conflict", "High Houses",
+	"Militia", "Navy Auxiliary", "Navy Carrier", "Navy Cruiser", "Navy", "Pilot's",
+	"Remnant Capital", "Remnant", "Scin Adjutant", "Scin Architect", "Scin Hoplologist",
+	"Successor", "Twilight Guard", "Vi Centurion", "Vi Evocati", "Vi Lord", "Wanderer",
+	"Wanderer Military", "Wanderer Outfits"
+]
+
 raw_content = ""
 file_name = "savegame.txt"
-ships_data = [] # Speichert Dictionaries: [{"name": ..., "full_block": ...}]
+current_ship_index = None
+
+state = {
+	"pilotname": "", "date": "", "system": "", "planet": "",
+	"prev_system": "", "prev_planet": "", "entry_method": "",
+	"credits": 0, "reputations": {}, "licenses": set(), "ships": [], "plugins": []
+}
+
+def format_filesize(size_in_bytes):
+	"""Returns human readable file size string."""
+	if size_in_bytes < 1024:
+		return f"{size_in_bytes} B"
+	elif size_in_bytes < 1024 * 1024:
+		return f"{size_in_bytes / 1024:.1f} KB"
+	else:
+		return f"{size_in_bytes / (1024 * 1024):.2f} MB"
+
+def parse_savegame(content):
+	pilotname = date_str = system = planet = prev_system = prev_planet = entry_method = ""
+	reputations = {}
+	licenses = set()
+	ships = []
+	plugins = []
+	
+	current_ship_lines = []
+	active_block = None
+
+	for line in content.splitlines():
+		if line.startswith("pilot "):
+			pilotname = line[6:].strip().strip('"')
+			continue
+		elif line.startswith("date "):
+			date_str = line[5:].strip()
+			continue
+		elif line.startswith("system "):
+			system = line[7:].strip().strip('"')
+			continue
+		elif line.startswith("planet "):
+			planet = line[7:].strip().strip('"')
+			continue
+		elif line.startswith('"previous system" '):
+			prev_system = line[18:].strip().strip('"')
+			continue
+		elif line.startswith('"previous planet" '):
+			prev_planet = line[18:].strip().strip('"')
+			continue
+		elif line.startswith('"system entry method" '):
+			entry_method = line[22:].strip().strip('"')
+			continue
+
+		if line.startswith('"reputation with"'):
+			active_block = "reputation"
+			continue
+		elif line.startswith("licenses"):
+			active_block = "licenses"
+			continue
+		elif line.startswith("# What you own:"):
+			active_block = "ships"
+			continue
+		elif line.startswith("plugins"):
+			active_block = "plugins"
+			continue
+
+		if not line.startswith("\t") and not line.startswith("ship ") and line.strip() != "":
+			if active_block == "ships" and current_ship_lines:
+				ships.append("\n".join(current_ship_lines))
+				current_ship_lines = []
+			active_block = None
+
+		if active_block == "reputation" and line.startswith("\t"):
+			parts = line.strip().rsplit(" ", 1)
+			if len(parts) == 2:
+				try:
+					reputations[parts[0].strip('"')] = float(parts[1])
+				except ValueError:
+					pass
+
+		elif active_block == "licenses" and line.startswith("\t"):
+			licenses.add(line.strip().strip('"'))
+
+		elif active_block == "plugins" and line.startswith("\t"):
+			plugins.append(line.strip())
+
+		elif active_block == "ships":
+			if line.startswith("ship ") or line.startswith("\t"):
+				if line.startswith("ship ") and current_ship_lines:
+					ships.append("\n".join(current_ship_lines))
+					current_ship_lines = []
+				current_ship_lines.append(line)
+
+	if current_ship_lines:
+		ships.append("\n".join(current_ship_lines))
+
+	credits_val = 0
+	for line in content.splitlines():
+		if line.startswith("\tcredits "):
+			try:
+				credits_val = int(line.strip().split(" ")[1])
+			except (IndexError, ValueError):
+				pass
+			break
+
+	return {
+		"pilotname": pilotname, "date": date_str, "system": system, "planet": planet,
+		"prev_system": prev_system, "prev_planet": prev_planet, "entry_method": entry_method,
+		"credits": credits_val, "reputations": reputations, "licenses": licenses, 
+		"ships": ships, "plugins": plugins
+	}
 
 async def process_file(event):
-	global raw_content, file_name, ships_data
+	global raw_content, file_name, state, current_ship_index
+	
 	file_list = event.target.files
 	if file_list.length == 0:
 		return
@@ -82,68 +486,222 @@ async def process_file(event):
 	file_name = file.name
 	raw_content = await file.text()
 	
-	# 1. Credits auslesen
-	match_credits = re.search(r"^\tcredits (\d+)", raw_content, re.MULTILINE)
-	if match_credits:
-		js.document.getElementById("credits-input").value = match_credits.group(1)
+	# Update filename label
+	js.document.getElementById("file-name-display").textContent = file_name
+	
+	state = parse_savegame(raw_content)
+	current_ship_index = None
 
-	# 2. Schiffe parsen (Sucht nach ship "Modell" "Name" oder ship "Modell" Blöcken)
-	ships_data = []
-	# RegEx matched Blöcke, die mit "ship" am Zeilenanfang beginnen bis zur nächsten Zeile ohne Einrückung
-	ship_matches = re.finditer(r"^(ship\s+.*?(?=\n\S|\Z))", raw_content, re.DOTALL | re.MULTILINE)
+	js.document.getElementById("info-pilot").textContent = state["pilotname"] or "N/A"
+	js.document.getElementById("info-date").textContent = state["date"] or "N/A"
+	js.document.getElementById("info-system").textContent = state["system"] or "N/A"
+	js.document.getElementById("info-planet").textContent = state["planet"] or "N/A"
+	js.document.getElementById("info-prev-system").textContent = state["prev_system"] or "N/A"
+	js.document.getElementById("info-prev-planet").textContent = state["prev_planet"] or "N/A"
+	js.document.getElementById("info-entry-method").textContent = state["entry_method"] or "N/A"
+	js.document.getElementById("info-filesize").textContent = format_filesize(file.size)
+
+	js.document.getElementById("credits-input").value = state["credits"]
+
+	render_licenses_grid()
+	render_reputations_tables()
+	render_ships_dropdown()
+	render_plugins_list()
+
+	js.document.getElementById("status-container").style.display = "block"
+	js.document.getElementById("editor-section").style.display = "block"
+	js.document.getElementById("download-section").style.display = "none"
+
+def render_licenses_grid():
+	container = js.document.getElementById("license-checkbox-container")
+	container.innerHTML = ""
+
+	for lic in ALL_LICENSES:
+		label_elem = js.document.createElement("label")
+		label_elem.className = "license-checkbox"
+
+		chk = js.document.createElement("input")
+		chk.type = "checkbox"
+		chk.value = lic
+		chk.checked = lic in state["licenses"]
+		chk.addEventListener("change", create_proxy(on_license_toggle))
+
+		span_elem = js.document.createElement("span")
+		span_elem.textContent = lic
+
+		label_elem.appendChild(chk)
+		label_elem.appendChild(span_elem)
+		container.appendChild(label_elem)
+
+def on_license_toggle(event):
+	lic_name = event.target.value
+	if event.target.checked:
+		state["licenses"].add(lic_name)
+	else:
+		state["licenses"].discard(lic_name)
+
+def render_reputations_tables():
+	t1 = js.document.getElementById("reputations-table-1")
+	t2 = js.document.getElementById("reputations-table-2")
+	t3 = js.document.getElementById("reputations-table-3")
+	t1.innerHTML = ""
+	t2.innerHTML = ""
+	t3.innerHTML = ""
 	
+	items = list(state["reputations"].items())
+	total = len(items)
+	
+	col1_size = (total + 2) // 3
+	col2_size = (total - col1_size + 1) // 2
+	
+	for idx, (faction, val) in enumerate(items):
+		tr = js.document.createElement("tr")
+		
+		td_faction = js.document.createElement("td")
+		td_faction.className = "faction-cell"
+		td_faction.textContent = faction
+		
+		td_val = js.document.createElement("td")
+		inp = js.document.createElement("input")
+		inp.type = "number"
+		inp.step = "any"
+		inp.value = str(val)
+		inp.dataset.faction = faction
+		inp.addEventListener("change", create_proxy(on_reputation_change))
+		
+		td_val.appendChild(inp)
+		tr.appendChild(td_faction)
+		tr.appendChild(td_val)
+		
+		if idx < col1_size:
+			t1.appendChild(tr)
+		elif idx < col1_size + col2_size:
+			t2.appendChild(tr)
+		else:
+			t3.appendChild(tr)
+
+def render_plugins_list():
+	container = js.document.getElementById("plugins-list-container")
+	container.innerHTML = ""
+	
+	if not state["plugins"]:
+		li = js.document.createElement("li")
+		li.textContent = "No active plugins found in this savegame."
+		li.style.listStyleType = "none"
+		container.appendChild(li)
+		return
+
+	for plugin in state["plugins"]:
+		li = js.document.createElement("li")
+		li.textContent = plugin
+		container.appendChild(li)
+
+def render_ships_dropdown():
 	ship_select = js.document.getElementById("ship-select")
-	ship_select.innerHTML = '<option value="">-- Bitte wählen --</option>' # Dropdown zurücksetzen
+	ship_select.innerHTML = '<option value="">-- Select a ship --</option>'
 	
-	for idx, match in enumerate(ship_matches):
-		full_block = match.group(1)
+	for idx, ship_block in enumerate(state["ships"]):
+		first_line = ship_block.splitlines()[0] if ship_block.splitlines() else "ship"
+		ship_label = first_line.replace('ship ', '').replace('"', '')
 		
-		# Name aus dem Schiffsblock extrahieren (falls vorhanden, sonst Modellname)
-		name_match = re.search(r'^\tname "([^"]+)"', full_block, re.MULTILINE)
-		model_match = re.search(r'^ship "([^"]+)"', full_block, re.MULTILINE)
+		for s_line in ship_block.splitlines():
+			if s_line.startswith('\tname '):
+				parts = s_line.strip().split(' ', 1)
+				if len(parts) > 1:
+					custom_name = parts[1].strip('"')
+					ship_label = f"{ship_label} ({custom_name})"
+				break
 		
-		ship_name = name_match.group(1) if name_match else (model_match.group(1) if model_match else f"Schiff #{idx+1}")
-		
-		ships_data.append({
-			"name": ship_name,
-			"block": full_block
-		})
-		
-		# Neues <option>-Element im Dropdown erstellen
 		option = js.document.createElement("option")
 		option.value = str(idx)
-		option.textContent = f"{idx+1}. {ship_name}"
+		option.textContent = f"{idx + 1}. {ship_label}"
 		ship_select.appendChild(option)
 
-	# Editor-Bereich einblenden
-	js.document.getElementById("editor-section").style.display = "block"
+def on_reputation_change(event):
+	faction = event.target.dataset.faction
+	try:
+		state["reputations"][faction] = float(event.target.value)
+	except ValueError:
+		pass
+
+def save_current_ship_code_to_state():
+	global current_ship_index
+	if current_ship_index is not None and current_ship_index < len(state["ships"]):
+		code_value = js.document.getElementById("ship-code").value
+		state["ships"][current_ship_index] = code_value
 
 def on_ship_selected(event):
-	selected_index = event.target.value
+	global current_ship_index
+	save_current_ship_code_to_state()
+
+	selected_value = event.target.value
 	ship_details = js.document.getElementById("ship-details")
 	
-	if selected_index != "":
-		idx = int(selected_index)
-		# Scriptteil des Schiffs in die Textarea schreiben
-		js.document.getElementById("ship-code").value = ships_data[idx]["block"]
-		# Textarea-Container einblenden
+	if selected_value != "":
+		current_ship_index = int(selected_value)
+		js.document.getElementById("ship-code").value = state["ships"][current_ship_index]
 		ship_details.style.display = "block"
 	else:
+		current_ship_index = None
 		ship_details.style.display = "none"
 
+def on_ship_code_input(event):
+	save_current_ship_code_to_state()
+
+def switch_tab(section_id):
+	save_current_ship_code_to_state()
+	
+	js.document.getElementById("section-ships").style.display = "none"
+	js.document.getElementById("section-reputations").style.display = "none"
+	js.document.getElementById("section-licenses").style.display = "none"
+	js.document.getElementById("section-plugins").style.display = "none"
+	
+	js.document.getElementById(section_id).style.display = "block"
+
 def apply_changes(event):
-	global raw_content, file_name
-	new_credits = js.document.getElementById("credits-input").value
+	global raw_content, file_name, state
 	
-	# Credits im Text ersetzen
-	updated_content = re.sub(
-		r"^\tcredits \d+",
-		f"\tcredits {new_credits}",
-		raw_content,
-		flags=re.MULTILINE
-	)
-	
-	# Blob für Download bereitstellen
+	save_current_ship_code_to_state()
+	state["credits"] = js.document.getElementById("credits-input").value
+
+	lines = raw_content.splitlines()
+	updated_lines = []
+	skip_block = False
+
+	for line in lines:
+		if line.startswith("\tcredits "):
+			updated_lines.append(f'\tcredits {state["credits"]}')
+			continue
+
+		if line.startswith("licenses"):
+			skip_block = True
+			updated_lines.append("licenses")
+			for lic in sorted(state["licenses"]):
+				updated_lines.append(f'\t"{lic}"')
+			continue
+
+		if line.startswith('"reputation with"'):
+			skip_block = True
+			updated_lines.append('"reputation with"')
+			for faction, value in state["reputations"].items():
+				updated_lines.append(f'\t"{faction}" {value}')
+			continue
+
+		if line.startswith("# What you own:"):
+			skip_block = True
+			updated_lines.append("# What you own:")
+			for ship_block in state["ships"]:
+				updated_lines.append(ship_block)
+			continue
+
+		if skip_block and not line.startswith("\t") and not line.startswith("ship ") and line.strip() != "":
+			skip_block = False
+
+		if not skip_block:
+			updated_lines.append(line)
+
+	updated_content = "\n".join(updated_lines)
+
 	blob = js.Blob.new([updated_content], {type: "text/plain"})
 	url = js.URL.createObjectURL(blob)
 	
@@ -151,11 +709,29 @@ def apply_changes(event):
 	download_link.href = url
 	download_link.download = file_name
 	
-	js.document.getElementById("download-section").style.display = "block"
+	js.document.getElementById("download-section").style.display = "flex"
 
-# Event-Listener registrieren
+def handle_textarea_tab(event):
+	if event.key == "Tab":
+		event.preventDefault()
+		textarea = event.target
+		start = textarea.selectionStart
+		end = textarea.selectionEnd
+
+		textarea.value = textarea.value[:start] + "\t" + textarea.value[end:]
+		textarea.selectionStart = textarea.selectionEnd = start + 1
+		save_current_ship_code_to_state()
+
 js.document.getElementById("file-input").addEventListener("change", create_proxy(process_file))
 js.document.getElementById("ship-select").addEventListener("change", create_proxy(on_ship_selected))
+js.document.getElementById("ship-code").addEventListener("input", create_proxy(on_ship_code_input))
+js.document.getElementById("ship-code").addEventListener("keydown", create_proxy(handle_textarea_tab))
+
+js.document.getElementById("show-ships-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-ships")))
+js.document.getElementById("show-rep-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-reputations")))
+js.document.getElementById("show-lic-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-licenses")))
+js.document.getElementById("show-plug-btn").addEventListener("click", create_proxy(lambda e: switch_tab("section-plugins")))
+
 js.document.getElementById("save-btn").addEventListener("click", create_proxy(apply_changes))
 	</script>
 
